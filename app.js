@@ -437,11 +437,12 @@ async function loadFiles() {
         const urlParams = currentFolderId ? `?folderId=${currentFolderId}` : '';
         const [myRes, sharedRes] = await Promise.all([
             fetch(`https://mini-drive-backend-ba55.onrender.com/my-drive${urlParams}`, { headers }),
-            fetch("https://mini-drive-backend-ba55.onrender.com/shared-files", { headers })
+            // 🔥 CHANGED: Now hitting /shared-data instead of /shared-files
+            fetch("https://mini-drive-backend-ba55.onrender.com/shared-data", { headers })
         ]);
         
         const myDriveData = await myRes.json();
-        const sharedFiles = await sharedRes.json();
+        const sharedData = await sharedRes.json(); // 🔥 CHANGED: Now contains .files and .folders
         
         if (!myRes.ok) throw new Error(myDriveData.error || "Failed to fetch drive data");
 
@@ -463,14 +464,30 @@ async function loadFiles() {
             if(sharedDriveSection) sharedDriveSection.classList.remove('hidden');
             if(sharedFilesGrid) {
                 sharedFilesGrid.innerHTML = '';
-                if(sharedFiles && sharedFiles.length > 0) {
-                    sharedFiles.forEach(file => {
-                        const sharedData = currentUser ? file.sharedWith.find(u => u.email === currentUser.email) : null;
-                        const perm = sharedData ? sharedData.permission : 'view';
-                        sharedFilesGrid.appendChild(buildFileCard(file._id, file, false, false, perm));
-                    });
+                
+                // 🔥 NEW: Check for both folders AND files
+                const hasSharedFiles = sharedData.files && sharedData.files.length > 0;
+                const hasSharedFolders = sharedData.folders && sharedData.folders.length > 0;
+
+                if(hasSharedFiles || hasSharedFolders) {
+                    // Render Shared Folders First
+                    if (hasSharedFolders) {
+                        sharedData.folders.forEach(folder => {
+                            const sData = currentUser ? folder.sharedWith.find(u => u.email === currentUser.email) : null;
+                            const perm = sData ? sData.permission : 'view';
+                            sharedFilesGrid.appendChild(buildFolderCard(folder, perm));
+                        });
+                    }
+                    // Render Shared Files Second
+                    if (hasSharedFiles) {
+                        sharedData.files.forEach(file => {
+                            const sData = currentUser ? file.sharedWith.find(u => u.email === currentUser.email) : null;
+                            const perm = sData ? sData.permission : 'view';
+                            sharedFilesGrid.appendChild(buildFileCard(file._id, file, false, false, perm));
+                        });
+                    }
                 } else {
-                    sharedFilesGrid.innerHTML = '<p class="text-secondary" style="padding: 15px;">No files shared with you yet.</p>';
+                    sharedFilesGrid.innerHTML = '<p class="text-secondary" style="padding: 15px;">No files or folders shared with you yet.</p>';
                 }
             }
         } else {
@@ -520,7 +537,7 @@ async function fetchAdminData() {
 }
 
 // --- FILE CARDS & PREVIEW ---
-function buildFolderCard(folder) {
+function buildFolderCard(folder, userPermission = 'view') {
     const card = document.createElement('div');
     card.className = 'list-row';
     card.style.cursor = 'pointer';
@@ -531,20 +548,28 @@ function buildFolderCard(folder) {
     };
     
     const dateStr = new Date(folder.createdAt).toLocaleDateString();
+    
+    // 🔥 THE UPGRADE: Check who is looking at the folder to determine what buttons they get
+    const isOwner = currentUser && folder.owner === currentUser.email;
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    const canEdit = isOwner || isAdmin || userPermission === 'edit';
 
     card.innerHTML = `
         <div style="display: flex; align-items: center; gap: 15px;">
             <i class="fa-solid fa-folder" style="color: #8ab4f8; font-size: 1.2rem;"></i>
             <span>${folder.name}</span>
         </div>
-        <div>${folder.owner === currentUser.email ? 'me' : folder.owner}</div>
+        <div>${isOwner ? 'me' : folder.owner}</div>
         <div>${dateStr}</div>
         <div>--</div>
         <div style="position: relative; text-align: right;">
             <button class="icon-btn" onclick="toggleDropdown('menu-${folder._id}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
             <div id="menu-${folder._id}" class="action-dropdown hidden">
-                <button onclick="renameFolder('${folder._id}', '${folder.name}')"><i class="fa-solid fa-pen"></i> Rename</button>
-                <button onclick="deleteFolder('${folder._id}')" style="color: #fca5a5;"><i class="fa-solid fa-trash"></i> Delete</button>
+                ${canEdit ? `<button onclick="renameFolder('${folder._id}', '${folder.name}')"><i class="fa-solid fa-pen"></i> Rename</button>` : ""}
+                
+                ${isOwner ? `<button onclick="openShareModal('${folder._id}', 'folder')"><i class="fa-solid fa-user-plus"></i> Share</button>` : ""}
+                
+                ${canEdit ? `<button onclick="deleteFolder('${folder._id}')" style="color: #fca5a5;"><i class="fa-solid fa-trash"></i> Delete</button>` : ""}
             </div>
         </div>
     `;
@@ -725,14 +750,20 @@ window.deleteFolder = async function(folderId) {
 }
 
 // --- SHARE MODAL & LOGIC ---
-window.openShareModal = function(fileId) {
-    currentShareFileId = fileId;
+// --- SHARE MODAL & LOGIC ---
+let currentShareId = null;
+let currentShareType = null; // Will be 'file' or 'folder'
+
+window.openShareModal = function(id, type = 'file') {
+    currentShareId = id;
+    currentShareType = type;
     document.getElementById('shareModal').classList.add('active');
 };
 
 window.closeShareModal = function() {
     document.getElementById('shareModal').classList.remove('active');
-    currentShareFileId = null;
+    currentShareId = null;
+    currentShareType = null;
     if (document.getElementById('shareEmail')) document.getElementById('shareEmail').value = ''; 
 };
 
@@ -740,23 +771,31 @@ window.sendShareEmail = async function() {
     const email = document.getElementById('shareEmail').value.trim();
     const permission = document.getElementById('sharePermission').value;
     if (!email) return alert("Please enter an email");
+    
+    // 🔥 THE UPGRADE: Dynamically hit the right backend route based on what we are sharing!
+    const endpoint = currentShareType === 'folder' ? "/share-folder" : "/share-file";
+    const payload = currentShareType === 'folder' ? { folderId: currentShareId, email, permission } : { fileId: currentShareId, email, permission };
+
     try {
-        const res = await fetch("https://mini-drive-backend-ba55.onrender.com/share-file", {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`https://mini-drive-backend-ba55.onrender.com${endpoint}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("token") },
-            body: JSON.stringify({ fileId: currentShareFileId, email, permission })
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Failed to share file");
-        alert(`File shared with ${email}!`);
+        if (!res.ok) throw new Error(data.error || `Failed to share ${currentShareType}`);
+        
+        alert(`${currentShareType.charAt(0).toUpperCase() + currentShareType.slice(1)} shared with ${email}!`);
         closeShareModal();
         loadFiles();
     } catch (error) { alert("Error sharing: " + error.message); }
 };
 
 window.copyModalShareLink = function() {
-    if(!currentShareFileId) return;
-    const url = `${window.location.origin}${window.location.pathname}?fileId=${currentShareFileId}`;
+    if(!currentShareId) return;
+    const param = currentShareType === 'folder' ? 'folderId' : 'fileId';
+    const url = `${window.location.origin}${window.location.pathname}?${param}=${currentShareId}`;
     navigator.clipboard.writeText(url).then(() => {
         alert("Share link copied to clipboard!");
         closeShareModal();
