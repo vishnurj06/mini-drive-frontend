@@ -188,13 +188,8 @@ window.logout = function() {
     const sharedDriveSection = document.getElementById("sharedDriveSection");
     if (sharedDriveSection) sharedDriveSection.classList.add('hidden');
     
-    // 4. Switch back to the login screen
-    document.getElementById("authView").classList.remove("hidden");
-    document.getElementById("dashboardView").classList.add("hidden");
-    
-    // If they were viewing a file, close that too
-    const fileView = document.getElementById("fileViewContainer");
-    if (fileView) fileView.classList.remove("active");
+    // 4. 🔥 THE FIX: Use your built-in showView function to switch pages!
+    showView("authView");
 };
 
 // --- OTP & FORGOT PASSWORD LOGIC ---
