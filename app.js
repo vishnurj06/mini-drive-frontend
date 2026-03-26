@@ -2,7 +2,7 @@ window.onload = () => {
   const token = localStorage.getItem("token");
   const urlParams = new URLSearchParams(window.location.search);
   const fileIdParam = urlParams.get('fileId');
-  const folderIdParam = urlParams.get('folderId'); // 🔥 THE FIX: Grab folder URLs
+  const folderIdParam = urlParams.get('folderId');
 
   if (fileIdParam || folderIdParam) {
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -19,12 +19,11 @@ window.onload = () => {
         const welcomeEl = document.getElementById('welcomeMsg');
         if(welcomeEl) welcomeEl.textContent = `Hello, ${currentUser.username}`;
 
+        // 🔥 OPTION B FLOW: Run BOTH links through the security check!
         if (fileIdParam) {
-            handleSharedLink(fileIdParam);
+            handleSharedLink(fileIdParam, 'file');
         } else if (folderIdParam) {
-            // 🔥 THE FIX: Open the shared folder automatically
-            showView("dashboardView");
-            openFolder(folderIdParam, "Shared Folder"); 
+            handleSharedLink(folderIdParam, 'folder');
         } else {
             showView("dashboardView");
             renderBreadcrumbs();
@@ -36,20 +35,18 @@ window.onload = () => {
     }
   } else {
     if (fileIdParam) sessionStorage.setItem("pendingSharedLink", fileIdParam);
-    if (folderIdParam) sessionStorage.setItem("pendingSharedFolder", folderIdParam); // Save folder for after login
+    if (folderIdParam) sessionStorage.setItem("pendingSharedFolder", folderIdParam);
     showView("authView");
   }
 };
 
-// --- STATE ---
 let authMode = 'login'; 
 let currentUser = null;
-const ADMIN_EMAIL = 'admin@gmail.com';
 let currentFolderId = null;
 let breadcrumbPath = [{ id: null, name: 'My Drive' }];
-let currentShareFileId = null;
+let currentShareId = null;
+let currentShareType = null; 
 
-// --- HELPERS ---
 function getFileType(fileName) {
     if (!fileName) return "file";
     const ext = fileName.split('.').pop().toLowerCase();
@@ -80,18 +77,16 @@ function showView(viewId) {
 }
 
 window.goBackToDashboard = () => {
-    window.history.replaceState({}, document.title, window.location.pathname); // Clears the URL
+    window.history.replaceState({}, document.title, window.location.pathname); 
     document.getElementById('fileViewContainer').classList.remove('active');
     document.getElementById('dashboardView').classList.add('active');
     
-    // 🔥 THE FIX: Reset folder state so you actually go back to the root!
     currentFolderId = null;
     breadcrumbPath = [{ id: null, name: 'My Drive' }];
     renderBreadcrumbs();
     loadFiles();
 };
 
-// --- AUTHENTICATION ---
 window.toggleAuthMode = (mode) => {
     authMode = mode;
     const title = document.getElementById('authTitle');
@@ -122,7 +117,6 @@ window.handleAuth = async (e) => {
   const password = document.getElementById('passwordInput').value;
   const username = document.getElementById('usernameInput').value.trim();
 
-  // Strict Domain Validation
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   if (!emailRegex.test(email)) {
       return document.getElementById("authError").innerText = "Please enter a valid email address domain.";
@@ -143,9 +137,7 @@ window.handleAuth = async (e) => {
       alert("Signup successful! Now login.");
       toggleAuthMode('login'); 
     }
-  } catch (err) {
-    document.getElementById("authError").innerText = err.message;
-  }
+  } catch (err) { document.getElementById("authError").innerText = err.message; }
 };
 
 async function login(email, password) {
@@ -170,56 +162,46 @@ async function login(email, password) {
 
     const urlParams = new URLSearchParams(window.location.search);
     const fileId = urlParams.get('fileId') || sessionStorage.getItem("pendingSharedLink");
-    const folderId = urlParams.get('folderId') || sessionStorage.getItem("pendingSharedFolder"); // 🔥 THE FIX
+    const folderId = urlParams.get('folderId') || sessionStorage.getItem("pendingSharedFolder"); 
+    
     if (urlParams.has('fileId') || urlParams.has('folderId')) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-    
+
     if (fileId) {
         sessionStorage.removeItem("pendingSharedLink");
-        handleSharedLink(fileId);
+        handleSharedLink(fileId, 'file');
     } else if (folderId) {
-        // 🔥 THE FIX: Jump straight into the folder after login
         sessionStorage.removeItem("pendingSharedFolder");
-        showView("dashboardView");
-        openFolder(folderId, "Shared Folder");
+        handleSharedLink(folderId, 'folder');
     } else {
         showView("dashboardView");
         renderBreadcrumbs();
         await loadFiles();
     }
-  } else {
-    throw new Error(data.error || "Login failed");
-  }
+  } else { throw new Error(data.error || "Login failed"); }
 }
 
 window.logout = function() {
-    // 1. Clear the digital ID
     localStorage.removeItem("token");
     currentUser = null;
-    
-    // 2. Reset navigation state so the next user starts at the root
     currentFolderId = null;
     breadcrumbPath = [{ id: null, name: 'My Drive' }];
     
-    // 3. Force UI sections into hiding
     const adminSection = document.getElementById('adminSection');
     if (adminSection) adminSection.classList.add('hidden');
     
     const sharedDriveSection = document.getElementById("sharedDriveSection");
     if (sharedDriveSection) sharedDriveSection.classList.add('hidden');
     
-    // 4. 🔥 THE FIX: Use your built-in showView function to switch pages!
     showView("authView");
 };
 
-// --- OTP & FORGOT PASSWORD LOGIC ---
 window.openForgotModal = () => {
     document.getElementById('forgotPasswordModal').classList.add('active');
     document.getElementById('forgotStep1').classList.remove('hidden');
     document.getElementById('forgotStep2').classList.add('hidden');
 };
-
 window.closeForgotModal = () => {
     document.getElementById('forgotPasswordModal').classList.remove('active');
     document.getElementById('forgotEmail').value = '';
@@ -262,7 +244,6 @@ window.resetPassword = async () => {
     } catch (err) { alert(err.message); }
 };
 
-// --- MENU TOGGLES ---
 window.toggleNewMenu = function(e) {
     e.stopPropagation(); 
     const menu = document.getElementById('newMenu');
@@ -290,7 +271,6 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// --- FOLDER NAVIGATION ---
 window.renderBreadcrumbs = function() {
     const nav = document.getElementById("breadcrumbNav");
     if(!nav) return;
@@ -360,7 +340,6 @@ window.createNewFolder = async function() {
     } catch (err) { alert(err.message); }
 };
 
-// --- FILE UPLOAD ---
 window.handleUpload = async (e) => {
     const filesToUpload = e.target.files;
     if (!filesToUpload || filesToUpload.length === 0) return;
@@ -392,17 +371,12 @@ window.handleUpload = async (e) => {
                 console.error("Failed to upload:", file.name, data.error);
             }
         }
-
-        e.target.value = ''; // Reset input
+        e.target.value = ''; 
         await loadFiles();
-    } catch (error) {
-        alert("Upload failed: " + error.message);
-    } finally {
-        progressBox.classList.add('hidden');
-    }
+    } catch (error) { alert("Upload failed: " + error.message); } 
+    finally { progressBox.classList.add('hidden'); }
 };
 
-// --- DATA FETCHING ---
 async function loadFiles() {
     const token = localStorage.getItem("token");
     if (!token) return;
@@ -413,41 +387,49 @@ async function loadFiles() {
     const adminSection = document.getElementById("adminSection");
 
     if (myDriveGrid) myDriveGrid.innerHTML = '<div class="spinner" style="margin: 20px;"></div>';
-
-    // 1. BULLETPROOF RESET: Always hide Admin Section by default for every user
     if (adminSection) adminSection.classList.add('hidden');
 
-    // Pending Requests Fetch
+    // 🔥 OPTION B: Unified Pending Requests UI
     const accessReqSection = document.getElementById("accessRequestsSection");
     const accessReqGrid = document.getElementById("accessRequestsGrid");
     try {
         const reqRes = await fetch("https://mini-drive-backend-ba55.onrender.com/pending-requests", { headers });
         if (reqRes.ok) {
-            const pendingFiles = await reqRes.json();
-            if (pendingFiles.length > 0 && accessReqSection) {
+            const pendingData = await reqRes.json(); // contains .files and .folders
+            if ((pendingData.files.length > 0 || pendingData.folders.length > 0) && accessReqSection) {
                 accessReqSection.classList.remove('hidden');
                 accessReqGrid.innerHTML = '';
-                pendingFiles.forEach(file => {
-                    file.accessRequests.forEach(req => {
-                        const div = document.createElement('div');
-                        div.className = 'file-card';
-                        div.innerHTML = `
-                            <div style="padding: 10px;">
-                                <h4 style="margin-bottom: 5px; font-size: 1rem;">${file.fileName}</h4>
-                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;"><b>${req.email}</b> requesting access.</p>
-                                <select id="perm-${file._id}-${req.email}" style="width:100%; margin-bottom: 10px; padding: 8px; background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--panel-border); border-radius: 6px;">
-                                    <option value="view">Can View</option>
-                                    <option value="edit">Can Edit</option>
-                                </select>
-                                <div style="display: flex; gap: 10px;">
-                                    <button class="primary-btn" style="padding: 8px; flex: 1;" onclick="approveAccess('${file._id}', '${req.email}')">Approve</button>
-                                    <button class="secondary-btn" style="padding: 8px; flex: 1; color: #ef4444; border-color: #ef4444;" onclick="rejectAccess('${file._id}', '${req.email}')">Reject</button>
+                
+                const renderRequests = (items, type) => {
+                    items.forEach(item => {
+                        item.accessRequests.forEach(req => {
+                            const itemName = type === 'folder' ? item.name : item.fileName;
+                            const iconHTML = type === 'folder' ? '<i class="fa-solid fa-folder" style="color: #8ab4f8; margin-right: 8px;"></i>' : '<i class="fa-solid fa-file" style="color: #cbd5e1; margin-right: 8px;"></i>';
+                            
+                            const div = document.createElement('div');
+                            div.className = 'file-card';
+                            div.innerHTML = `
+                                <div style="padding: 10px;">
+                                    <h4 style="margin-bottom: 5px; font-size: 1rem; word-break: break-all;">${iconHTML}${itemName}</h4>
+                                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;"><b>${req.email}</b> requesting access.</p>
+                                    <select id="perm-${item._id}-${req.email}" style="width:100%; margin-bottom: 10px; padding: 8px; background: rgba(0,0,0,0.2); color: white; border: 1px solid var(--panel-border); border-radius: 6px;">
+                                        <option value="view">Can View</option>
+                                        <option value="edit">Can Edit</option>
+                                    </select>
+                                    <div style="display: flex; gap: 10px;">
+                                        <button class="primary-btn" style="padding: 8px; flex: 1;" onclick="approveAccess('${item._id}', '${req.email}', '${type}')">Approve</button>
+                                        <button class="secondary-btn" style="padding: 8px; flex: 1; color: #ef4444; border-color: #ef4444;" onclick="rejectAccess('${item._id}', '${req.email}', '${type}')">Reject</button>
+                                    </div>
                                 </div>
-                            </div>
-                        `;
-                        accessReqGrid.appendChild(div);
+                            `;
+                            accessReqGrid.appendChild(div);
+                        });
                     });
-                });
+                }
+                
+                if(pendingData.folders) renderRequests(pendingData.folders, 'folder');
+                if(pendingData.files) renderRequests(pendingData.files, 'file');
+                
             } else if (accessReqSection) {
                 accessReqSection.classList.add('hidden');
             }
@@ -458,12 +440,11 @@ async function loadFiles() {
         const urlParams = currentFolderId ? `?folderId=${currentFolderId}` : '';
         const [myRes, sharedRes] = await Promise.all([
             fetch(`https://mini-drive-backend-ba55.onrender.com/my-drive${urlParams}`, { headers }),
-            // 🔥 CHANGED: Now hitting /shared-data instead of /shared-files
             fetch("https://mini-drive-backend-ba55.onrender.com/shared-data", { headers })
         ]);
         
         const myDriveData = await myRes.json();
-        const sharedData = await sharedRes.json(); // 🔥 CHANGED: Now contains .files and .folders
+        const sharedData = await sharedRes.json();
         
         if (!myRes.ok) throw new Error(myDriveData.error || "Failed to fetch drive data");
 
@@ -476,10 +457,8 @@ async function loadFiles() {
             }
             if (myDriveData.files) {
                 myDriveData.files.forEach(file => {
-                    // 🔥 THE FIX: Dynamically check if you actually own the file!
                     const isOwner = currentUser && file.owner === currentUser.email;
                     const isAdmin = currentUser && currentUser.role === 'admin';
-                    
                     myDriveGrid.appendChild(buildFileCard(file._id, file, isOwner, isAdmin, 'view'));
                 });
             }
@@ -488,18 +467,14 @@ async function loadFiles() {
             }
         }
         
-        // 2. BULLETPROOF SHARED LOGIC: ONLY show if root folder AND user is NOT an admin
         if (currentFolderId === null && currentUser && currentUser.role !== 'admin') {
             if(sharedDriveSection) sharedDriveSection.classList.remove('hidden');
             if(sharedFilesGrid) {
                 sharedFilesGrid.innerHTML = '';
-                
-                // 🔥 NEW: Check for both folders AND files
                 const hasSharedFiles = sharedData.files && sharedData.files.length > 0;
                 const hasSharedFolders = sharedData.folders && sharedData.folders.length > 0;
 
                 if(hasSharedFiles || hasSharedFolders) {
-                    // Render Shared Folders First
                     if (hasSharedFolders) {
                         sharedData.folders.forEach(folder => {
                             const sData = currentUser ? folder.sharedWith.find(u => u.email === currentUser.email) : null;
@@ -507,7 +482,6 @@ async function loadFiles() {
                             sharedFilesGrid.appendChild(buildFolderCard(folder, perm));
                         });
                     }
-                    // Render Shared Files Second
                     if (hasSharedFiles) {
                         sharedData.files.forEach(file => {
                             const sData = currentUser ? file.sharedWith.find(u => u.email === currentUser.email) : null;
@@ -520,29 +494,22 @@ async function loadFiles() {
                 }
             }
         } else {
-            // Hide shared section for Admins OR if we are inside a folder
             if(sharedDriveSection) sharedDriveSection.classList.add('hidden');
         }
         
     } catch (error) {
         if(myDriveGrid) {
-            // 🔥 THE FIX: Catch the 403 error and show a clean lock screen instead of raw text
-            if(error.message.includes("Access Denied")) {
-                myDriveGrid.innerHTML = `
-                    <div style="padding: 40px; text-align: center;">
-                        <i class="fa-solid fa-lock" style="font-size: 3rem; color: #fca5a5; margin-bottom: 15px;"></i>
-                        <h3>Access Denied</h3>
-                        <p style="color: var(--text-secondary); margin-bottom: 20px;">You do not have permission to view this folder. Please ask the owner to share it with you.</p>
-                        <button class="primary-btn" onclick="goBackToDashboard()">Return to My Drive</button>
-                    </div>
-                `;
-            } else {
-                myDriveGrid.innerHTML = `<p class="text-danger" style="padding: 15px;">Error: ${error.message}</p>`;
-            }
+            myDriveGrid.innerHTML = `
+                <div style="padding: 40px; text-align: center;">
+                    <i class="fa-solid fa-lock" style="font-size: 3rem; color: #fca5a5; margin-bottom: 15px;"></i>
+                    <h3>Access Denied</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">You do not have permission to view this content.</p>
+                    <button class="secondary-btn" onclick="goBackToDashboard()">Return to My Drive</button>
+                </div>
+            `;
         }
     }
 
-    // 3. BULLETPROOF ADMIN LOGIC: Unhide the panel ONLY if they pass the check
     if (currentUser && currentUser.role === 'admin') {
         if (adminSection) {
             adminSection.classList.remove('hidden');
@@ -551,7 +518,6 @@ async function loadFiles() {
     }
 }
 
-// 🔥 NEW FUNCTION: Place this right below loadFiles()
 async function fetchAdminData() {
     const token = localStorage.getItem("token");
     try {
@@ -564,17 +530,15 @@ async function fetchAdminData() {
             const grid = document.getElementById('adminFilesGrid');
             if(grid) {
                 grid.innerHTML = '';
-                
                 const hasFiles = data.files && data.files.length > 0;
                 const hasFolders = data.folders && data.folders.length > 0;
 
                 if(!hasFiles && !hasFolders) {
                      grid.innerHTML = '<p class="text-secondary" style="padding: 15px;">No files or folders in the database.</p>';
                 } else {
-                     // 🔥 THE FIX: Render admin folders!
                      if (hasFolders) {
                          data.folders.forEach(folder => {
-                             grid.appendChild(buildFolderCard(folder, 'edit')); // Admins can edit/delete
+                             grid.appendChild(buildFolderCard(folder, 'edit', true)); 
                          });
                      }
                      if (hasFiles) {
@@ -588,14 +552,15 @@ async function fetchAdminData() {
     } catch (e) { console.error("Admin fetch error:", e); }
 }
 
-// --- FILE CARDS & PREVIEW ---
-function buildFolderCard(folder, userPermission = 'view') {
+function buildFolderCard(folder, userPermission = 'view', isAdminGrid = false) {
     const card = document.createElement('div');
     card.className = 'list-row';
-    card.style.cursor = 'pointer';
+    card.style.cursor = isAdminGrid ? 'default' : 'pointer'; 
     card.onclick = (e) => {
         if(!e.target.closest('.icon-btn') && !e.target.closest('.action-dropdown')) {
-            openFolder(folder._id, folder.name);
+            if(!isAdminGrid) {
+                openFolder(folder._id, folder.name);
+            }
         }
     };
     
@@ -603,8 +568,6 @@ function buildFolderCard(folder, userPermission = 'view') {
     const isOwner = currentUser && folder.owner === currentUser.email;
     const isAdmin = currentUser && currentUser.role === 'admin';
     const canEdit = isOwner || isAdmin || userPermission === 'edit';
-    
-    // 🔥 THE FIX: If they aren't the owner and can't edit, don't show the menu!
     const showMenu = canEdit || isOwner;
 
     card.innerHTML = `
@@ -615,7 +578,6 @@ function buildFolderCard(folder, userPermission = 'view') {
         <div>${isOwner ? 'me' : folder.owner}</div>
         <div>${dateStr}</div>
         <div>--</div>
-        
         ${showMenu ? `
         <div style="position: relative; text-align: right;">
             <button class="icon-btn" onclick="toggleDropdown('menu-${folder._id}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
@@ -640,8 +602,6 @@ function buildFileCard(id, data, isOwner, isAdmin, userPermission = 'view') {
     const dateStr = data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'Unknown date';
     const fileId = data._id; 
     const canEdit = isOwner || isAdmin || userPermission === 'edit';
-    
-    // Dynamic size parsing!
     const sizeStr = data.size ? (data.size / 1024 / 1024).toFixed(2) + ' MB' : 'Unknown';
 
     card.innerHTML = `
@@ -657,8 +617,7 @@ function buildFileCard(id, data, isOwner, isAdmin, userPermission = 'view') {
             <div id="menu-${fileId}" class="action-dropdown hidden">
                 <button onclick="viewFile('${data.url}', '${fileName}')"><i class="fa-solid fa-eye"></i> View</button>
                 <button onclick="downloadFile('${data.url}', '${fileName}')"><i class="fa-solid fa-download"></i> Download</button>
-                ${isOwner ? `<button onclick="openShareModal('${fileId}')"><i class="fa-solid fa-user-plus"></i> Share</button>` : ""}
-                
+                ${isOwner ? `<button onclick="openShareModal('${fileId}', 'file')"><i class="fa-solid fa-user-plus"></i> Share</button>` : ""}
                 ${canEdit ? `<button onclick="deleteFile('${fileId}')" style="color: #fca5a5;"><i class="fa-solid fa-trash"></i> Delete</button>` : ""}
             </div>
         </div>
@@ -730,32 +689,19 @@ window.downloadFile = async function(fileUrl, fileName) {
 
 window.deleteFile = async function(fileId) {
     if (!confirm("Are you sure you want to delete this file?")) return;
-
-    console.log("SENDING TO BACKEND, FILE ID:", fileId);
-
     const token = localStorage.getItem("token");
     try {
         const res = await fetch("https://mini-drive-backend-ba55.onrender.com/delete-file", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-            },
-            // 🔥 THE FIX: Explicitly name the variable fileId so the backend recognizes it
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({ fileId: fileId }) 
         });
-
-        if (res.ok) {
-            // 🔥 THE FIX: Automatically refresh the files on the screen so the ghost disappears!
-            loadFiles(); 
-        } else {
+        if (res.ok) loadFiles(); 
+        else {
             const data = await res.json();
-            console.error("Backend refused:", data);
             alert(data.error || "Failed to delete file");
         }
-    } catch (err) {
-        console.error("Network error:", err);
-    }
+    } catch (err) { console.error("Network error:", err); }
 }
 
 window.renameFolder = async function(e, folderId, oldName) {
@@ -775,39 +721,22 @@ window.renameFolder = async function(e, folderId, oldName) {
 
 window.deleteFolder = async function(folderId) {
     if (!confirm("Are you sure you want to delete this folder and EVERYTHING inside it?")) return;
-
-    console.log("SENDING TO BACKEND, FOLDER ID:", folderId);
-
     const token = localStorage.getItem("token");
     try {
         const res = await fetch("https://mini-drive-backend-ba55.onrender.com/delete-folder", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-            },
-            // 🔥 THE FIX: Explicitly name the variable folderId so the backend recognizes it
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({ folderId: folderId }) 
         });
-
-        if (res.ok) {
-            // 🔥 THE FIX: Automatically refresh the files on the screen
-            loadFiles(); 
-        } else {
+        if (res.ok) loadFiles(); 
+        else {
             const data = await res.json();
-            console.error("Backend refused:", data);
             alert(data.error || "Failed to delete folder");
         }
-    } catch (err) {
-        console.error("Network error:", err);
-    }
+    } catch (err) { console.error("Network error:", err); }
 }
 
-// --- SHARE MODAL & LOGIC ---
-// --- SHARE MODAL & LOGIC ---
-let currentShareId = null;
-let currentShareType = null; // Will be 'file' or 'folder'
-
+// --- SHARING LOGIC (OPTION B ENABLED) ---
 window.openShareModal = function(id, type = 'file') {
     currentShareId = id;
     currentShareType = type;
@@ -826,7 +755,6 @@ window.sendShareEmail = async function() {
     const permission = document.getElementById('sharePermission').value;
     if (!email) return alert("Please enter an email");
     
-    // 🔥 THE UPGRADE: Dynamically hit the right backend route based on what we are sharing!
     const endpoint = currentShareType === 'folder' ? "/share-folder" : "/share-file";
     const payload = currentShareType === 'folder' ? { folderId: currentShareId, email, permission } : { fileId: currentShareId, email, permission };
 
@@ -856,27 +784,31 @@ window.copyModalShareLink = function() {
     });
 };
 
-window.handleSharedLink = async function(fileId) {
+window.handleSharedLink = async function(id, type = 'file') {
+    showView("dashboardView"); // Bring them to dashboard immediately so it feels seamless
     try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`https://mini-drive-backend-ba55.onrender.com/file/${fileId}`, {
+        const endpoint = type === 'folder' ? `/folder/${id}` : `/file/${id}`;
+        const res = await fetch(`https://mini-drive-backend-ba55.onrender.com${endpoint}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         const data = await res.json();
+        
         if (!res.ok) throw new Error(data.error);
 
         if (data.access) {
-            // If they have access, open the file normally
-            viewFile(data.file.url, data.file.fileName);
+            if (type === 'folder') {
+                openFolder(id, data.folder.name);
+            } else {
+                viewFile(data.file.url, data.file.fileName);
+            }
         } else if (data.hasRequested) {
-            // 🔥 THE FIX: No big blocking box. Just a clean alert and back to dashboard!
             alert(`You have already requested access to ${data.fileName}. Waiting for owner approval.`);
             goBackToDashboard();
         } else {
-            // 🔥 THE FIX: Use a clean native popup to ask if they want access
             const wantAccess = confirm(`You need access to view "${data.fileName}". Would you like to request access from the owner?`);
             if (wantAccess) {
-                requestAccess(data.fileId);
+                requestAccess(id, type);
             } else {
                 goBackToDashboard();
             }
@@ -887,16 +819,17 @@ window.handleSharedLink = async function(fileId) {
     }
 };
 
-window.requestAccess = async function(fileId) {
+window.requestAccess = async function(id, type) {
     try {
         const token = localStorage.getItem("token");
+        const payload = type === 'folder' ? { folderId: id } : { fileId: id };
+        
         const res = await fetch("https://mini-drive-backend-ba55.onrender.com/request-access", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ fileId })
+            body: JSON.stringify(payload)
         });
         if (res.ok) {
-            // 🔥 THE FIX: Alert success, then instantly load their dashboard
             alert("Access requested successfully! The owner has been notified.");
             goBackToDashboard();
         }
@@ -906,13 +839,16 @@ window.requestAccess = async function(fileId) {
     }
 };
 
-window.approveAccess = async function(fileId, userEmail) {
-    const perm = document.getElementById(`perm-${fileId}-${userEmail}`).value;
+window.approveAccess = async function(id, userEmail, type) {
+    const perm = document.getElementById(`perm-${id}-${userEmail}`).value;
+    const endpoint = type === 'folder' ? "/share-folder" : "/share-file";
+    const payload = type === 'folder' ? { folderId: id, email: userEmail, permission: perm } : { fileId: id, email: userEmail, permission: perm };
+
     try {
-        const res = await fetch("https://mini-drive-backend-ba55.onrender.com/share-file", {
+        const res = await fetch(`https://mini-drive-backend-ba55.onrender.com${endpoint}`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("token") },
-            body: JSON.stringify({ fileId: fileId, email: userEmail, permission: perm })
+            body: JSON.stringify(payload)
         });
         if (res.ok) {
             alert("Access granted!");
@@ -921,13 +857,15 @@ window.approveAccess = async function(fileId, userEmail) {
     } catch (err) { alert("Error: " + err.message); }
 };
 
-window.rejectAccess = async function(fileId, userEmail) {
+window.rejectAccess = async function(id, userEmail, type) {
     if(!confirm(`Reject access for ${userEmail}?`)) return;
+    const payload = type === 'folder' ? { folderId: id, email: userEmail } : { fileId: id, email: userEmail };
+
     try {
         const res = await fetch("https://mini-drive-backend-ba55.onrender.com/reject-request", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: "Bearer " + localStorage.getItem("token") },
-            body: JSON.stringify({ fileId: fileId, email: userEmail })
+            body: JSON.stringify(payload)
         });
         if (res.ok) loadFiles();
     } catch (err) { alert("Error: " + err.message); }
