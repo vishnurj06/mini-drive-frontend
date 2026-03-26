@@ -510,13 +510,19 @@ async function loadFiles() {
         }
     }
 
+    // 3. BULLETPROOF ADMIN LOGIC: Unhide the panel ONLY if they pass the check
     if (currentUser && currentUser.role === 'admin') {
         if (adminSection) {
-            adminSection.classList.remove('hidden');
-            fetchAdminData(); 
+            // 🔥 THE FIX: Hide the Master Control when the admin navigates inside a folder
+            if (currentFolderId === null) {
+                adminSection.classList.remove('hidden');
+                fetchAdminData(); 
+            } else {
+                adminSection.classList.add('hidden');
+            }
         }
     }
-}
+} // <-- End of loadFiles function
 
 async function fetchAdminData() {
     const token = localStorage.getItem("token");
@@ -555,12 +561,11 @@ async function fetchAdminData() {
 function buildFolderCard(folder, userPermission = 'view', isAdminGrid = false) {
     const card = document.createElement('div');
     card.className = 'list-row';
-    card.style.cursor = isAdminGrid ? 'default' : 'pointer'; 
+    card.style.cursor = 'pointer'; 
     card.onclick = (e) => {
         if(!e.target.closest('.icon-btn') && !e.target.closest('.action-dropdown')) {
-            if(!isAdminGrid) {
-                openFolder(folder._id, folder.name);
-            }
+            // 🔥 THE FIX: Let Admins navigate into folders from the Master Control
+            openFolder(folder._id, folder.name);
         }
     };
     
@@ -569,6 +574,10 @@ function buildFolderCard(folder, userPermission = 'view', isAdminGrid = false) {
     const isAdmin = currentUser && currentUser.role === 'admin';
     const canEdit = isOwner || isAdmin || userPermission === 'edit';
     const showMenu = canEdit || isOwner;
+
+    // 🔥 THE FIX: Generate a random ID for the menu to prevent clicking bugs
+    const uniqueId = Math.random().toString(36).substring(2, 9);
+    const menuId = `menu-folder-${folder._id}-${uniqueId}`;
 
     card.innerHTML = `
         <div style="display: flex; align-items: center; gap: 15px;">
@@ -580,8 +589,8 @@ function buildFolderCard(folder, userPermission = 'view', isAdminGrid = false) {
         <div>--</div>
         ${showMenu ? `
         <div style="position: relative; text-align: right;">
-            <button class="icon-btn" onclick="toggleDropdown('menu-${folder._id}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-            <div id="menu-${folder._id}" class="action-dropdown hidden">
+            <button class="icon-btn" onclick="toggleDropdown('${menuId}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <div id="${menuId}" class="action-dropdown hidden">
                 ${canEdit ? `<button onclick="renameFolder('${folder._id}', '${folder.name}')"><i class="fa-solid fa-pen"></i> Rename</button>` : ""}
                 ${isOwner ? `<button onclick="openShareModal('${folder._id}', 'folder')"><i class="fa-solid fa-user-plus"></i> Share</button>` : ""}
                 ${canEdit ? `<button onclick="deleteFolder('${folder._id}')" style="color: #fca5a5;"><i class="fa-solid fa-trash"></i> Delete</button>` : ""}
@@ -604,6 +613,10 @@ function buildFileCard(id, data, isOwner, isAdmin, userPermission = 'view') {
     const canEdit = isOwner || isAdmin || userPermission === 'edit';
     const sizeStr = data.size ? (data.size / 1024 / 1024).toFixed(2) + ' MB' : 'Unknown';
 
+    // 🔥 THE FIX: Generate a random ID for the file menu to prevent clicking bugs
+    const uniqueId = Math.random().toString(36).substring(2, 9);
+    const menuId = `menu-file-${fileId}-${uniqueId}`;
+
     card.innerHTML = `
         <div style="display: flex; align-items: center; gap: 15px; cursor: pointer;" onclick="viewFile('${data.url}', '${fileName}')">
             <span style="font-size: 1.2rem;">${icon}</span>
@@ -613,8 +626,8 @@ function buildFileCard(id, data, isOwner, isAdmin, userPermission = 'view') {
         <div>${dateStr}</div>
         <div>${sizeStr}</div>
         <div style="position: relative; text-align: right;">
-            <button class="icon-btn" onclick="toggleDropdown('menu-${fileId}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-            <div id="menu-${fileId}" class="action-dropdown hidden">
+            <button class="icon-btn" onclick="toggleDropdown('${menuId}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <div id="${menuId}" class="action-dropdown hidden">
                 <button onclick="viewFile('${data.url}', '${fileName}')"><i class="fa-solid fa-eye"></i> View</button>
                 <button onclick="downloadFile('${data.url}', '${fileName}')"><i class="fa-solid fa-download"></i> Download</button>
                 ${isOwner ? `<button onclick="openShareModal('${fileId}', 'file')"><i class="fa-solid fa-user-plus"></i> Share</button>` : ""}
