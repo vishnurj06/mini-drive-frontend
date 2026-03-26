@@ -76,13 +76,17 @@ function showView(viewId) {
   document.getElementById(viewId).classList.add("active");
 }
 
-window.goBackToDashboard = () => {
+window.goBackToDashboard = (forceRoot = false) => {
     window.history.replaceState({}, document.title, window.location.pathname); 
     document.getElementById('fileViewContainer').classList.remove('active');
     document.getElementById('dashboardView').classList.add('active');
     
-    currentFolderId = null;
-    breadcrumbPath = [{ id: null, name: 'My Drive' }];
+    // 🔥 THE FIX: Only reset to the root if we explicitly tell it to (like on errors)
+    if (forceRoot === true) {
+        currentFolderId = null;
+        breadcrumbPath = [{ id: null, name: 'My Drive' }];
+    }
+    
     renderBreadcrumbs();
     loadFiles();
 };
@@ -504,7 +508,7 @@ async function loadFiles() {
                     <i class="fa-solid fa-lock" style="font-size: 3rem; color: #fca5a5; margin-bottom: 15px;"></i>
                     <h3>Access Denied</h3>
                     <p style="color: var(--text-secondary); margin-bottom: 20px;">You do not have permission to view this content.</p>
-                    <button class="secondary-btn" onclick="goBackToDashboard()">Return to My Drive</button>
+                    <button class="secondary-btn" onclick="goBackToDashboard(true)">Return to My Drive</button>
                 </div>
             `;
         }
@@ -798,7 +802,7 @@ window.copyModalShareLink = function() {
 };
 
 window.handleSharedLink = async function(id, type = 'file') {
-    showView("dashboardView"); // Bring them to dashboard immediately so it feels seamless
+    showView("dashboardView"); 
     try {
         const token = localStorage.getItem("token");
         const endpoint = type === 'folder' ? `/folder/${id}` : `/file/${id}`;
@@ -817,18 +821,18 @@ window.handleSharedLink = async function(id, type = 'file') {
             }
         } else if (data.hasRequested) {
             alert(`You have already requested access to ${data.fileName}. Waiting for owner approval.`);
-            goBackToDashboard();
+            goBackToDashboard(true); // 🔥 Force to root
         } else {
             const wantAccess = confirm(`You need access to view "${data.fileName}". Would you like to request access from the owner?`);
             if (wantAccess) {
                 requestAccess(id, type);
             } else {
-                goBackToDashboard();
+                goBackToDashboard(true); // 🔥 Force to root
             }
         }
     } catch (err) {
         alert(`Error: ${err.message}`);
-        goBackToDashboard();
+        goBackToDashboard(true); // 🔥 Force to root
     }
 };
 
@@ -844,11 +848,11 @@ window.requestAccess = async function(id, type) {
         });
         if (res.ok) {
             alert("Access requested successfully! The owner has been notified.");
-            goBackToDashboard();
+            goBackToDashboard(true); // 🔥 Force to root
         }
     } catch (err) { 
         alert("Error requesting access"); 
-        goBackToDashboard();
+        goBackToDashboard(true); // 🔥 Force to root
     }
 };
 
