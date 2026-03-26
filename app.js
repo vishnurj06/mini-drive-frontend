@@ -172,10 +172,17 @@ async function login(email, password) {
   }
 }
 
-window.logout = function() {
-  localStorage.removeItem("token");
-  showView("authView");
-};
+function logout() {
+    localStorage.removeItem("token");
+    currentUser = null;
+    
+    // 🔥 FIX: Force the admin section back into hiding!
+    const adminSection = document.getElementById('adminSection');
+    if (adminSection) adminSection.classList.add('hidden');
+    
+    document.getElementById("authView").classList.remove("hidden");
+    document.getElementById("dashboardView").classList.add("hidden");
+}
 
 // --- OTP & FORGOT PASSWORD LOGIC ---
 window.openForgotModal = () => {
@@ -439,7 +446,8 @@ async function loadFiles() {
         }
         
         const sharedDriveSection = document.getElementById("sharedDriveSection");
-        if (currentFolderId === null) {
+        
+        if (currentFolderId === null && (!currentUser || currentUser.role !== 'admin')) {
             if(sharedDriveSection) sharedDriveSection.classList.remove('hidden');
             if(sharedFilesGrid) {
                 sharedFilesGrid.innerHTML = '';
@@ -744,8 +752,6 @@ window.copyModalShareLink = function() {
 };
 
 window.handleSharedLink = async function(fileId) {
-    showView("sharedLinkView");
-    const content = document.getElementById("sharedLinkContent");
     try {
         const token = localStorage.getItem("token");
         const res = await fetch(`https://mini-drive-backend-ba55.onrender.com/file/${fileId}`, {
@@ -755,22 +761,24 @@ window.handleSharedLink = async function(fileId) {
         if (!res.ok) throw new Error(data.error);
 
         if (data.access) {
+            // If they have access, open the file normally
             viewFile(data.file.url, data.file.fileName);
+        } else if (data.hasRequested) {
+            // 🔥 THE FIX: No big blocking box. Just a clean alert and back to dashboard!
+            alert(`You have already requested access to ${data.fileName}. Waiting for owner approval.`);
+            goBackToDashboard();
         } else {
-            if (data.hasRequested) {
-                content.innerHTML = `
-                    <p style="color: var(--text-secondary); margin-bottom: 15px;">You requested access to <b>${data.fileName}</b>.</p>
-                    <p style="color: #f59e0b;"><i class="fa-solid fa-clock"></i> Waiting for owner approval...</p>
-                    <button class="secondary-btn mt-2" onclick="goBackToDashboard()" style="width: 100%; margin-top: 20px;">Go to Dashboard</button>`;
+            // 🔥 THE FIX: Use a clean native popup to ask if they want access
+            const wantAccess = confirm(`You need access to view "${data.fileName}". Would you like to request access from the owner?`);
+            if (wantAccess) {
+                requestAccess(data.fileId);
             } else {
-                content.innerHTML = `
-                    <p style="margin-bottom: 15px;">You need access to view <b>${data.fileName}</b></p>
-                    <button class="primary-btn mt-2" onclick="requestAccess('${data.fileId}')">Request Access</button>
-                    <button class="secondary-btn mt-2" onclick="goBackToDashboard()" style="width: 100%; margin-top: 10px;">Go to Dashboard</button>`;
+                goBackToDashboard();
             }
         }
     } catch (err) {
-        content.innerHTML = `<p class="error-message">Error: ${err.message}</p><button class="secondary-btn mt-2" onclick="goBackToDashboard()" style="width: 100%;">Go to Dashboard</button>`;
+        alert(`Error: ${err.message}`);
+        goBackToDashboard();
     }
 };
 
@@ -783,10 +791,14 @@ window.requestAccess = async function(fileId) {
             body: JSON.stringify({ fileId })
         });
         if (res.ok) {
-            alert("Access requested successfully!");
-            handleSharedLink(fileId);
+            // 🔥 THE FIX: Alert success, then instantly load their dashboard
+            alert("Access requested successfully! The owner has been notified.");
+            goBackToDashboard();
         }
-    } catch (err) { alert("Error requesting access"); }
+    } catch (err) { 
+        alert("Error requesting access"); 
+        goBackToDashboard();
+    }
 };
 
 window.approveAccess = async function(fileId, userEmail) {
