@@ -172,17 +172,30 @@ async function login(email, password) {
   }
 }
 
-function logout() {
+window.logout = function() {
+    // 1. Clear the digital ID
     localStorage.removeItem("token");
     currentUser = null;
     
-    // 🔥 FIX: Force the admin section back into hiding!
+    // 2. Reset navigation state so the next user starts at the root
+    currentFolderId = null;
+    breadcrumbPath = [{ id: null, name: 'My Drive' }];
+    
+    // 3. Force UI sections into hiding
     const adminSection = document.getElementById('adminSection');
     if (adminSection) adminSection.classList.add('hidden');
     
+    const sharedDriveSection = document.getElementById("sharedDriveSection");
+    if (sharedDriveSection) sharedDriveSection.classList.add('hidden');
+    
+    // 4. Switch back to the login screen
     document.getElementById("authView").classList.remove("hidden");
     document.getElementById("dashboardView").classList.add("hidden");
-}
+    
+    // If they were viewing a file, close that too
+    const fileView = document.getElementById("fileViewContainer");
+    if (fileView) fileView.classList.remove("active");
+};
 
 // --- OTP & FORGOT PASSWORD LOGIC ---
 window.openForgotModal = () => {
@@ -380,8 +393,13 @@ async function loadFiles() {
     const headers = { Authorization: `Bearer ${token}` };
     const myDriveGrid = document.getElementById("myDriveGrid");
     const sharedFilesGrid = document.getElementById("sharedFilesGrid");
+    const sharedDriveSection = document.getElementById("sharedDriveSection");
+    const adminSection = document.getElementById("adminSection");
 
     if (myDriveGrid) myDriveGrid.innerHTML = '<div class="spinner" style="margin: 20px;"></div>';
+
+    // 1. BULLETPROOF RESET: Always hide Admin Section by default for every user
+    if (adminSection) adminSection.classList.add('hidden');
 
     // Pending Requests Fetch
     const accessReqSection = document.getElementById("accessRequestsSection");
@@ -445,13 +463,12 @@ async function loadFiles() {
             }
         }
         
-        const sharedDriveSection = document.getElementById("sharedDriveSection");
-        
-        if (currentFolderId === null && (!currentUser || currentUser.role !== 'admin')) {
+        // 2. BULLETPROOF SHARED LOGIC: ONLY show if root folder AND user is NOT an admin
+        if (currentFolderId === null && currentUser && currentUser.role !== 'admin') {
             if(sharedDriveSection) sharedDriveSection.classList.remove('hidden');
             if(sharedFilesGrid) {
                 sharedFilesGrid.innerHTML = '';
-                if(sharedFiles.length > 0) {
+                if(sharedFiles && sharedFiles.length > 0) {
                     sharedFiles.forEach(file => {
                         const sharedData = currentUser ? file.sharedWith.find(u => u.email === currentUser.email) : null;
                         const perm = sharedData ? sharedData.permission : 'view';
@@ -462,6 +479,7 @@ async function loadFiles() {
                 }
             }
         } else {
+            // Hide shared section for Admins OR if we are inside a folder
             if(sharedDriveSection) sharedDriveSection.classList.add('hidden');
         }
         
@@ -469,9 +487,8 @@ async function loadFiles() {
         if(myDriveGrid) myDriveGrid.innerHTML = `<p class="text-danger" style="padding: 15px;">Error: ${error.message}</p>`;
     }
 
-    // 🔥 ADMIN LOGIC GOES HERE (At the very end of loadFiles)
+    // 3. BULLETPROOF ADMIN LOGIC: Unhide the panel ONLY if they pass the check
     if (currentUser && currentUser.role === 'admin') {
-        const adminSection = document.getElementById('adminSection');
         if (adminSection) {
             adminSection.classList.remove('hidden');
             fetchAdminData(); 
