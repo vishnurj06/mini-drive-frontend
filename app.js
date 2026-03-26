@@ -2,33 +2,37 @@ window.onload = () => {
   const token = localStorage.getItem("token");
   const urlParams = new URLSearchParams(window.location.search);
   const fileIdParam = urlParams.get('fileId');
+  const folderIdParam = urlParams.get('folderId'); // 🔥 THE FIX: Grab folder URLs
 
   if (token) {
     try {
         const payload = JSON.parse(atob(token.split(".")[1]));
-        // Update this block in BOTH window.onload and the login() function:
         currentUser = { 
             email: payload.email, 
             username: payload.username || payload.email.split('@')[0],
-            role: payload.role || 'user'  // <--- ADD THIS LINE
+            role: payload.role || 'user'
         };
         const welcomeEl = document.getElementById('welcomeMsg');
         if(welcomeEl) welcomeEl.textContent = `Hello, ${currentUser.username}`;
 
         if (fileIdParam) {
             handleSharedLink(fileIdParam);
+        } else if (folderIdParam) {
+            // 🔥 THE FIX: Open the shared folder automatically
+            showView("dashboardView");
+            openFolder(folderIdParam, "Shared Folder"); 
         } else {
             showView("dashboardView");
             renderBreadcrumbs();
             loadFiles();
         }
     } catch (e) {
-        // If token is malformed
         localStorage.removeItem("token");
         showView("authView");
     }
   } else {
     if (fileIdParam) sessionStorage.setItem("pendingSharedLink", fileIdParam);
+    if (folderIdParam) sessionStorage.setItem("pendingSharedFolder", folderIdParam); // Save folder for after login
     showView("authView");
   }
 };
@@ -147,21 +151,26 @@ async function login(email, password) {
     localStorage.setItem("token", data.token);
     const payload = JSON.parse(atob(data.token.split(".")[1]));
     
-    // Update this block in BOTH window.onload and the login() function:
     currentUser = { 
         email: payload.email, 
         username: payload.username || payload.email.split('@')[0],
-        role: payload.role || 'user'  // <--- ADD THIS LINE
+        role: payload.role || 'user'
     };
     
     document.getElementById('welcomeMsg').textContent = `Hello, ${currentUser.username}`;
 
     const urlParams = new URLSearchParams(window.location.search);
     const fileId = urlParams.get('fileId') || sessionStorage.getItem("pendingSharedLink");
+    const folderId = urlParams.get('folderId') || sessionStorage.getItem("pendingSharedFolder"); // 🔥 THE FIX
 
     if (fileId) {
         sessionStorage.removeItem("pendingSharedLink");
         handleSharedLink(fileId);
+    } else if (folderId) {
+        // 🔥 THE FIX: Jump straight into the folder after login
+        sessionStorage.removeItem("pendingSharedFolder");
+        showView("dashboardView");
+        openFolder(folderId, "Shared Folder");
     } else {
         showView("dashboardView");
         renderBreadcrumbs();
@@ -449,10 +458,18 @@ async function loadFiles() {
         if (myDriveGrid) {
             myDriveGrid.innerHTML = '';
             if (myDriveData.folders) {
-                myDriveData.folders.forEach(folder => myDriveGrid.appendChild(buildFolderCard(folder)));
+                myDriveData.folders.forEach(folder => {
+                    myDriveGrid.appendChild(buildFolderCard(folder, 'view'));
+                });
             }
             if (myDriveData.files) {
-                myDriveData.files.forEach(file => myDriveGrid.appendChild(buildFileCard(file._id, file, true, false, 'owner')));
+                myDriveData.files.forEach(file => {
+                    // 🔥 THE FIX: Dynamically check if you actually own the file!
+                    const isOwner = currentUser && file.owner === currentUser.email;
+                    const isAdmin = currentUser && currentUser.role === 'admin';
+                    
+                    myDriveGrid.appendChild(buildFileCard(file._id, file, isOwner, isAdmin, 'view'));
+                });
             }
             if (myDriveGrid.children.length === 0) {
                 myDriveGrid.innerHTML = '<p class="text-secondary" style="padding: 15px;">No files or folders here.</p>';
@@ -548,11 +565,12 @@ function buildFolderCard(folder, userPermission = 'view') {
     };
     
     const dateStr = new Date(folder.createdAt).toLocaleDateString();
-    
-    // 🔥 THE UPGRADE: Check who is looking at the folder to determine what buttons they get
     const isOwner = currentUser && folder.owner === currentUser.email;
     const isAdmin = currentUser && currentUser.role === 'admin';
     const canEdit = isOwner || isAdmin || userPermission === 'edit';
+    
+    // 🔥 THE FIX: If they aren't the owner and can't edit, don't show the menu!
+    const showMenu = canEdit || isOwner;
 
     card.innerHTML = `
         <div style="display: flex; align-items: center; gap: 15px;">
@@ -562,16 +580,17 @@ function buildFolderCard(folder, userPermission = 'view') {
         <div>${isOwner ? 'me' : folder.owner}</div>
         <div>${dateStr}</div>
         <div>--</div>
+        
+        ${showMenu ? `
         <div style="position: relative; text-align: right;">
             <button class="icon-btn" onclick="toggleDropdown('menu-${folder._id}')"><i class="fa-solid fa-ellipsis-vertical"></i></button>
             <div id="menu-${folder._id}" class="action-dropdown hidden">
                 ${canEdit ? `<button onclick="renameFolder('${folder._id}', '${folder.name}')"><i class="fa-solid fa-pen"></i> Rename</button>` : ""}
-                
                 ${isOwner ? `<button onclick="openShareModal('${folder._id}', 'folder')"><i class="fa-solid fa-user-plus"></i> Share</button>` : ""}
-                
                 ${canEdit ? `<button onclick="deleteFolder('${folder._id}')" style="color: #fca5a5;"><i class="fa-solid fa-trash"></i> Delete</button>` : ""}
             </div>
         </div>
+        ` : `<div style="text-align: right; padding-right: 15px;"><i class="fa-solid fa-lock" style="color: var(--text-secondary); opacity: 0.5;" title="View Only"></i></div>`}
     `;
     return card;
 }
