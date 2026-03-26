@@ -4,6 +4,10 @@ window.onload = () => {
   const fileIdParam = urlParams.get('fileId');
   const folderIdParam = urlParams.get('folderId'); // 🔥 THE FIX: Grab folder URLs
 
+  if (fileIdParam || folderIdParam) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   if (token) {
     try {
         const payload = JSON.parse(atob(token.split(".")[1]));
@@ -76,9 +80,14 @@ function showView(viewId) {
 }
 
 window.goBackToDashboard = () => {
-    window.history.pushState({}, document.title, window.location.pathname);
+    window.history.replaceState({}, document.title, window.location.pathname); // Clears the URL
     document.getElementById('fileViewContainer').classList.remove('active');
     document.getElementById('dashboardView').classList.add('active');
+    
+    // 🔥 THE FIX: Reset folder state so you actually go back to the root!
+    currentFolderId = null;
+    breadcrumbPath = [{ id: null, name: 'My Drive' }];
+    renderBreadcrumbs();
     loadFiles();
 };
 
@@ -162,7 +171,10 @@ async function login(email, password) {
     const urlParams = new URLSearchParams(window.location.search);
     const fileId = urlParams.get('fileId') || sessionStorage.getItem("pendingSharedLink");
     const folderId = urlParams.get('folderId') || sessionStorage.getItem("pendingSharedFolder"); // 🔥 THE FIX
-
+    if (urlParams.has('fileId') || urlParams.has('folderId')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
     if (fileId) {
         sessionStorage.removeItem("pendingSharedLink");
         handleSharedLink(fileId);
@@ -513,7 +525,21 @@ async function loadFiles() {
         }
         
     } catch (error) {
-        if(myDriveGrid) myDriveGrid.innerHTML = `<p class="text-danger" style="padding: 15px;">Error: ${error.message}</p>`;
+        if(myDriveGrid) {
+            // 🔥 THE FIX: Catch the 403 error and show a clean lock screen instead of raw text
+            if(error.message.includes("Access Denied")) {
+                myDriveGrid.innerHTML = `
+                    <div style="padding: 40px; text-align: center;">
+                        <i class="fa-solid fa-lock" style="font-size: 3rem; color: #fca5a5; margin-bottom: 15px;"></i>
+                        <h3>Access Denied</h3>
+                        <p style="color: var(--text-secondary); margin-bottom: 20px;">You do not have permission to view this folder. Please ask the owner to share it with you.</p>
+                        <button class="primary-btn" onclick="goBackToDashboard()">Return to My Drive</button>
+                    </div>
+                `;
+            } else {
+                myDriveGrid.innerHTML = `<p class="text-danger" style="padding: 15px;">Error: ${error.message}</p>`;
+            }
+        }
     }
 
     // 3. BULLETPROOF ADMIN LOGIC: Unhide the panel ONLY if they pass the check
@@ -538,19 +564,28 @@ async function fetchAdminData() {
             const grid = document.getElementById('adminFilesGrid');
             if(grid) {
                 grid.innerHTML = '';
-                if(data.files.length === 0) {
-                     grid.innerHTML = '<p class="text-secondary" style="padding: 15px;">No files in the database.</p>';
+                
+                const hasFiles = data.files && data.files.length > 0;
+                const hasFolders = data.folders && data.folders.length > 0;
+
+                if(!hasFiles && !hasFolders) {
+                     grid.innerHTML = '<p class="text-secondary" style="padding: 15px;">No files or folders in the database.</p>';
                 } else {
-                     data.files.forEach(file => {
-                         // isOwner = false, isAdmin = true
-                         grid.appendChild(buildFileCard(file._id, file, false, true)); 
-                     });
+                     // 🔥 THE FIX: Render admin folders!
+                     if (hasFolders) {
+                         data.folders.forEach(folder => {
+                             grid.appendChild(buildFolderCard(folder, 'edit')); // Admins can edit/delete
+                         });
+                     }
+                     if (hasFiles) {
+                         data.files.forEach(file => {
+                             grid.appendChild(buildFileCard(file._id, file, false, true)); 
+                         });
+                     }
                 }
             }
         }
-    } catch (e) {
-        console.error("Admin fetch error:", e);
-    }
+    } catch (e) { console.error("Admin fetch error:", e); }
 }
 
 // --- FILE CARDS & PREVIEW ---
